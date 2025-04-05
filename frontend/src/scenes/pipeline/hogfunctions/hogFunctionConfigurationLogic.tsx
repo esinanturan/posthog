@@ -301,6 +301,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         setSampleGlobalsError: (error) => ({ error }),
         setSampleGlobals: (sampleGlobals: HogFunctionInvocationGlobals | null) => ({ sampleGlobals }),
         setShowEventsList: (showEventsList: boolean) => ({ showEventsList }),
+        sendBroadcast: true,
     }),
     reducers(({ props }) => ({
         sampleGlobals: [
@@ -393,6 +394,8 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         id: res.id,
                         template_id: res.template?.id,
                         template_name: res.template?.name,
+                        type: res.type,
+                        enabled: res.enabled,
                     })
 
                     lemonToast.success('Configuration saved')
@@ -534,6 +537,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                         return values.exampleInvocationGlobals
                     }
+                },
+            },
+        ],
+        broadcast: [
+            false,
+            {
+                sendBroadcast: async () => {
+                    const id = values.hogFunction?.id
+                    if (!id) {
+                        lemonToast.error('No broadcast to send')
+                        return false
+                    }
+                    await api.hogFunctions.sendBroadcast(id)
+                    lemonToast.success('Broadcast sent!')
+                    return true
                 },
             },
         ],
@@ -690,24 +708,35 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
             },
         ],
         exampleInvocationGlobals: [
-            (s) => [s.configuration, s.currentProject, s.groupTypes],
-            (configuration, currentProject, groupTypes): HogFunctionInvocationGlobals => {
+            (s) => [s.configuration, s.currentProject, s.groupTypes, s.logicProps],
+            (configuration, currentProject, groupTypes, logicProps): HogFunctionInvocationGlobals => {
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
+                const event = {
+                    uuid: eventId,
+                    distinct_id: uuid(),
+                    timestamp: dayjs().toISOString(),
+                    elements_chain: '',
+                    url: `${window.location.origin}/project/${currentProject?.id}/events/`,
+                    ...(logicProps.logicKey === 'errorTracking'
+                        ? {
+                              event: configuration?.filters?.events?.[0].id || '$error_tracking_issue_created',
+                              properties: {
+                                  name: 'Test issue',
+                                  description: 'This is the issue description',
+                              },
+                          }
+                        : {
+                              event: '$pageview',
+                              properties: {
+                                  $current_url: currentUrl,
+                                  $browser: 'Chrome',
+                              },
+                          }),
+                }
                 const globals: HogFunctionInvocationGlobals = {
-                    event: {
-                        uuid: eventId,
-                        distinct_id: uuid(),
-                        event: '$pageview',
-                        timestamp: dayjs().toISOString(),
-                        elements_chain: '',
-                        properties: {
-                            $current_url: currentUrl,
-                            $browser: 'Chrome',
-                        },
-                        url: `${window.location.origin}/project/${currentProject?.id}/events/`,
-                    },
+                    event,
                     person: {
                         id: personId,
                         properties: {
